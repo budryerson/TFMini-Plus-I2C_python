@@ -1,0 +1,13 @@
+LICENSE
+README.md
+pyproject.toml
+setup.cfg
+setup.py
+src/tfmpi2c/__init__.py
+src/tfmpi2c.egg-info/PKG-INFO
+src/tfmpi2c.egg-info/SOURCES.txt
+src/tfmpi2c.egg-info/dependency_links.txt
+src/tfmpi2c.egg-info/requires.txt
+src/tfmpi2c.egg-info/top_level.txt
+src/tfmpi2c/test/__init__.py
+src/tfmpi2c/test/tfmpi2c_test.py
