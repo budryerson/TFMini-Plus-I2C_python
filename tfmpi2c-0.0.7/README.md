@@ -1,0 +1,82 @@
+# tfmpi2c
+### A Python module for the Benewake TFMini-Plus Lidar sensor in I2C mode
+
+The **TFMini-Plus** is largely compatible with the **TFMini-S** and therefore that device is able to use this module.  One difference is that upon command to change communication mode, such as `SET_I2C_MODE` or `SET_SERIAL_MODE`, the **TFMini-Plus** switches mode immediately, whereas the **TFMini-S** requires a subsequent `SAVE_SETTING` command before the change takes place.  This module is *not compatible* with the **TF-Luna** in I2C mode.  This module is also *not compatible* with the **TFMini**, which is an entirely different product with its own command set and data structure.
+
+From hardware v1.3.5 and firmware v1.9.0 and above, the **TFMini-Plus** interface can be configured in either UART (Serial) or I2C (two-wire) communication mode.  This module is **only** for the I2C mode.
+
+Internally, the device samples at about 4KHz.  It presents frames of data to the interface at a programmable rate from 0 up to about 10KHz.  The default data-frame rate is 100Hz.  "Standard" data-frame rates are: 0, 1, 2, 5, 10, 20, 25, 50, 100, 125, 200, 250, 500, and 1000Hz.  Single data-frames can be obtained by setting the frame rate to 0 and sending a `TRIGGER_DETECTION` command.
+
+After a getData() command, three module variables are updated:
+<br />&nbsp;&nbsp;&#9679;&nbsp; `dist` Distance to target in centimeters. Range: 0 - 1200
+<br />&nbsp;&nbsp;&#9679;&nbsp; `flux` Strength or quality of return signal or error. Range: -1, 0 - 32767
+<br />&nbsp;&nbsp;&#9679;&nbsp; `temp` Temperature of device chip in code. Range: -25°C to 125°C
+
+Installed with the module is a `tests` folder that contains an example python script, `tfmpi2c_test.py`.
+All of the code for this module and the test script is richly commented to assist with understanding and in problem solving.
+<hr />
+
+### I2C mode operation
+
+This module supports **only** the I2C communication interface.   It is up to the user to ensure that the device is set to that mode. 
+
+To configure the device for I2C communication, a command must be sent using the UART interface.  This reconfiguration should be made prior to the device's service installation, either by the serial GUI test application and command code supplied by the manufacturer, or by using the example script included with the `tfmplus` python module to send a `SET_I2C_MODE` command.
+
+The device will remain in I2C mode after power has been removed and restored.  The only way to return to serial mode is with the `SET_SERIAL_MODE` command.  Even a `RESTORE_FACTORY_SETTINGS` command will NOT restore the device to its default, UART communication interface mode.
+
+The **TFMini-Plus** functions like an I2C slave device.  The default address is `0x10` (16 Decimal) but programmable with the `SET_I2C_ADDRESS` command and a parameter in the range of `1` to `127`.  The new setting will take effect immediately and permanently without a `SAVE_SETTINGS` command.  A `RESTORE_FACTORY_SETTINGS` command will restore the default address.  The I2C address can be set while still in serial communication mode or, if in I2C mode, the test script `tfmpi2c_test.py` included with the module can be used to test and change the address.
+<hr />
+
+### Three `tfmpi2c` module functions
+Three main functions are defined in the module.  Status code, command and parameter variables are also declared.
+
+`begin( portNumber, devAddress)` passes the I2C port number and I2C bus device address to the module, tries to open the port, performs a quick write operation and returns a boolean value indicating successful completion.
+
+`getData()` commands the device to transmit one data-frame, reads the data-frame and extracts the three measurement data values.  It sets the error `status` byte code and returns a boolean value indicating function 'pass/fail'.
+
+`sendCommand( cmnd, param)` sends a coded command and a parameter to the device.  It sets the `status` error code byte and returns a boolean 'pass/fail' value.  A proper command (`cmnd`) must be selected from the module's list of twenty defined commands.  A parameter (`param`) may be chosen from the module's list of defined parameters (such as data-frame rate) or entered directly (such as device I2C address). **An erroneous parameter can block communication and there is no external means of resetting the device to factory defaults.**
+
+Any change of device settings must be followed by a `SAVE_SETTINGS` command or else the modified values may be lost when power is removed.  `SYSTEM_RESET` and `RESTORE_FACTORY_SETTINGS` do not require a `SAVE_SETTINGS` command.
+<hr />
+
+### Using the I/O modes of the device
+The so-called I/O modes are not supported in this module.  Please do not attempt to use any I/O commands that you may find to be defined in this module.
+
+The I/O output mode is enabled and disabled by this 9 byte command:<br />
+5A 09 3B MODE DL DH ZL ZH SU
+
+Command byte number:<br />
+0 &nbsp;&nbsp; `0x5A`:  Header byte, starts every command frame<br />
+1 &nbsp;&nbsp; `0x09`:  Command length, number of bytes in command frame<br />
+2 &nbsp;&nbsp; `0x3B`:  Command number<br />
+<br />
+3 &nbsp;&nbsp; MODE:<br />
+&nbsp;&nbsp;&nbsp;&nbsp; `0x00`: I/O Mode OFF, standard data output mode<br />
+&nbsp;&nbsp;&nbsp;&nbsp; `0x01`: I/O Mode ON, output: near = high and far = low<br />
+&nbsp;&nbsp;&nbsp;&nbsp; `0x02`: I/O Mode ON, output: near = low and far = high<br />
+<br />
+4 &nbsp;&nbsp; DL: Near distance lo order byte of 16 bit integer<br />
+5 &nbsp;&nbsp; DH: Near distance hi order byte<br />
+<br />
+6 &nbsp;&nbsp; ZL: Zone width lo byte<br />
+7 &nbsp;&nbsp; ZL: Zone width hi byte<br />
+<br />
+8 &nbsp;&nbsp;SU: Checkbyte (the lo order byte of the sum of all the other bytes in the frame)<br />
+<br />
+If an object's distance is greater than the Near distance (D) plus the Zone width (Z) then the object is "far."<br />
+If the distance is less than the Near distance (D) then the object is "near".<br />
+The Zone is a neutral area. Any object distances measured in this range do not change the output.<br />
+The output can be set to be either high when the object is near and low when it's far (Mode 1); or low when it's near and high when it's far (Mode 2).<br />
+The high level is 3.3V, the low level is 0V.
+<hr>
+
+### Finally
+
+Benewake is not very forthcoming about the internals, but they did share this:
+>Some commands that modify internal parameters are processed within 1ms.  Some commands require the MCU to communicate with other chips may take several ms.  And some commands, such as saving configuration and restoring the factory settings need to erase the FLASH of the MCU, which may take several hundred ms.
+
+And also:
+>1- the measuring frequency of the module should be 2.5 times larger than the IIC reading frequency.
+<br />2- the iic reading frequency should not exceed 100hz<br />
+
+Since the Data-Frame Rate is limited to 1000Hz, this condition implies a 400Hz data sampling limit in I2C mode.  Benewake says sampling should not exceed 100Hz.  They don't say why; but you might keep that limitation in mind when you consider using the I2C interface.
