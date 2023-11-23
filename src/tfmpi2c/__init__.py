@@ -250,7 +250,7 @@ FRAME_1000         = 0x03E8
 #
 #  Create a proper command byte array, send the command,
 #  get a response, and return the status
-def sendCommand( cmnd, param):
+def sendCommand(cmnd, param=None):
     ''' Send command and get reply data'''
 
     # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -267,16 +267,25 @@ def sendCommand( cmnd, param):
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     # From 32bit 'cmnd' integer, create a four byte array of:
     # reply length, command length, command number and a one byte parameter
-    cmndData = bytearray( cmnd.to_bytes( TFMP_COMMAND_MAX, byteorder = 'little'))
+    cmndData = bytearray(cmnd.to_bytes(TFMP_COMMAND_MAX, byteorder = 'little'))
     #
-    replyLen = cmndData[ 0]    #  Save the first byte as reply length.
-    cmndLen = cmndData[ 1]     #  Save the second byte as command length.
-    cmndData[ 0] = 0x5A        #  Set the first byte to the HEADER code.
+    replyLen = cmndData[0]    #  Save the first byte as reply length.
+    cmndLen = cmndData[1]     #  Save the second byte as command length.
+    cmndData[0] = 0x5A        #  Set the first byte to the HEADER code.
     #
-    if( cmnd == SET_FRAME_RATE):    #  If the command is Set FrameRate...
-        cmndData[3:2] = param.to_bytes( 2, byteorder = 'little')     #  add the 2 byte FrameRate parameter.
-    elif( cmnd == SET_BAUD_RATE):   #  If the command is Set BaudRate...
-        cmndData[3:3] = param.to_bytes( 3, byteorder = 'little')     #  add the 3 byte BaudRate parameter.
+
+    # check that param is not none if the cmd expects input
+    if cmnd in [SET_BAUD_RATE, SET_FRAME_RATE, SET_I2C_ADDRESS] and not param:
+        # NOTE: this is terrible as it doesn't provide any hint as to why it failed. This library 
+        # could use a refactor to be more object oriented in the future, at that time fix this!
+        return False
+    
+    if cmnd == SET_FRAME_RATE:    #  If the command is Set FrameRate...
+        cmndData[3:2] = param.to_bytes(2, byteorder = 'little')     #  add the 2 byte FrameRate parameter.
+    elif cmnd == SET_BAUD_RATE:   #  If the command is Set BaudRate...
+        cmndData[3:3] = param.to_bytes(3, byteorder = 'little')     #  add the 3 byte BaudRate parameter.
+    elif cmnd == SET_I2C_ADDRESS:
+        cmndData[3:1] = param.to_bytes(1, byteorder = 'little')     #  add the 3 byte BaudRate parameter.
     #
     cmndData = cmndData[0:cmndLen]  # re-establish length of command data array
     #
@@ -285,23 +294,23 @@ def sendCommand( cmnd, param):
     #  necessary, but the value is irrelevant.)
     chkSum = 0
     #  Add together all bytes but the last.
-    for i in range( cmndLen -1):
-        chkSum += cmndData[ i]
+    for i in range(cmndLen - 1):
+        chkSum += cmndData[i]
     #  and save it as the last byte of command data.
-    cmndData[ cmndLen -1] = ( chkSum & 0xFF)
+    cmndData[cmndLen -1] = (chkSum & 0xFF)
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     #  Step 2 - Send the command data array to the device
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     cmndList = list(cmndData)
-    bus = SMBus( port)    
-    bus.write_i2c_block_data( addr, 0, cmndList)
+    bus = SMBus(port)    
+    bus.write_i2c_block_data(addr, 0, cmndList)
     bus.close()
     #
     #  If the command does not expect a reply, then we're
     #  finished here. Go home.
-    if( replyLen == 0):
+    if(replyLen == 0):
         return True
     #  + + + + + + + + + + + + + + + + + + + + + + + + +
 
@@ -311,8 +320,8 @@ def sendCommand( cmnd, param):
     #  Give device a chance to fill its registers
     time.sleep(0.002)
     #  Read block of data into declared list 'reply'
-    bus = SMBus( port)
-    reply = bus.read_i2c_block_data( addr, 0, replyLen)
+    bus = SMBus(port)
+    reply = bus.read_i2c_block_data(addr, 0, replyLen)
     bus.close()
 
     '''
@@ -329,26 +338,26 @@ def sendCommand( cmnd, param):
     #  Declare and clear the 'chkSum' variable
     chkSum = 0
     #  Add together all bytes but the last.
-    for i in range( replyLen -1):
-        chkSum += reply[ i]
+    for i in range(replyLen - 1):
+        chkSum += reply[i]
     #  If the low order byte does not equal the last byte...
-    if( ( chkSum & 0xff) != reply[ replyLen - 1]):
+    if((chkSum & 0xff) != reply[replyLen - 1]):
         status = TFMP_CHECKSUM  #  ...then set error
         return False            #  and return 'False.'
 
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     #  Step 5 - Interpret different command responses.
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    if( cmnd == OBTAIN_FIRMWARE_VERSION):
+    if(cmnd == OBTAIN_FIRMWARE_VERSION):
         version =\
-            str( reply[ 5]) + '.' +\
-            str( reply[ 4]) + '.' +\
-            str( reply[ 3])
+            str(reply[5]) + '.' +\
+            str(reply[4]) + '.' +\
+            str(reply[3])
     else:
-        if( cmnd == SYSTEM_RESET or
+        if(cmnd == SYSTEM_RESET or
             cmnd == RESTORE_FACTORY_SETTINGS or
-            cmnd == SAVE_SETTINGS ):
-            if( reply[ 3] == 1):    #  If PASS/FAIL byte non-zero
+            cmnd == SAVE_SETTINGS):
+            if(reply[3] == 1):    #  If PASS/FAIL byte non-zero
                 status = TFMP_FAIL  #  then set status to 'FAIL'
                 return False        #  and return 'False'.
 
