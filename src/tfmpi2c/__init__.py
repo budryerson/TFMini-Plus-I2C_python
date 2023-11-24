@@ -95,6 +95,9 @@ TFMP_STRONG       = 11  # Signal Strength saturation
 TFMP_FLOOD        = 12  # Ambient Light saturation
 TFMP_MEASURE      = 13
 
+# Local Error Codes, starting at 50 to separate from the system codes above
+TFMP_NOPARAM      = 50  # Required param missing from sendCommand call
+
 '''- - - - - -  TFMini Plus data formats  - - - - - - - - -
   Data Frame format:
   Byte0  Byte1  Byte2   Byte3   Byte4   Byte5   Byte6   Byte7   Byte8
@@ -250,7 +253,7 @@ FRAME_1000         = 0x03E8
 #
 #  Create a proper command byte array, send the command,
 #  get a response, and return the status
-def sendCommand( cmnd, param):
+def sendCommand( cmnd, param=None):
     ''' Send command and get reply data'''
 
     # - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -273,12 +276,20 @@ def sendCommand( cmnd, param):
     cmndLen = cmndData[ 1]     #  Save the second byte as command length.
     cmndData[ 0] = 0x5A        #  Set the first byte to the HEADER code.
     #
+
+    # check that param is not none if the cmd expects input
+    if cmnd in [ SET_BAUD_RATE, SET_FRAME_RATE, SET_I2C_ADDRESS] and not param:
+        status = TFMP_NOPARAM
+        return False
+    
     if( cmnd == SET_FRAME_RATE):    #  If the command is Set FrameRate...
-        cmndData[3:2] = param.to_bytes( 2, byteorder = 'little')     #  add the 2 byte FrameRate parameter.
+        cmndData[ 3:2] = param.to_bytes( 2, byteorder = 'little')     #  add the 2 byte FrameRate parameter.
     elif( cmnd == SET_BAUD_RATE):   #  If the command is Set BaudRate...
-        cmndData[3:3] = param.to_bytes( 3, byteorder = 'little')     #  add the 3 byte BaudRate parameter.
+        cmndData[ 3:3] = param.to_bytes( 3, byteorder = 'little')     #  add the 3 byte BaudRate parameter.
+    elif( cmnd == SET_I2C_ADDRESS):
+        cmndData[ 3:1] = param.to_bytes( 1, byteorder = 'little')     #  add the 3 byte BaudRate parameter.
     #
-    cmndData = cmndData[0:cmndLen]  # re-establish length of command data array
+    cmndData = cmndData[ 0:cmndLen]  # re-establish length of command data array
     #
     #  Create a checksum for the last byte of the array
     #  (Tests indicate the presence of the byte is
@@ -294,7 +305,7 @@ def sendCommand( cmnd, param):
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     #  Step 2 - Send the command data array to the device
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    cmndList = list(cmndData)
+    cmndList = list( cmndData)
     bus = SMBus( port)    
     bus.write_i2c_block_data( addr, 0, cmndList)
     bus.close()
@@ -309,7 +320,7 @@ def sendCommand( cmnd, param):
     #  Step 3 - Get command reply data back from the device.
     #  - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     #  Give device a chance to fill its registers
-    time.sleep(0.002)
+    time.sleep( 0.002)
     #  Read block of data into declared list 'reply'
     bus = SMBus( port)
     reply = bus.read_i2c_block_data( addr, 0, replyLen)
@@ -332,7 +343,7 @@ def sendCommand( cmnd, param):
     for i in range( replyLen -1):
         chkSum += reply[ i]
     #  If the low order byte does not equal the last byte...
-    if( ( chkSum & 0xff) != reply[ replyLen - 1]):
+    if(( chkSum & 0xff) != reply[ replyLen -1]):
         status = TFMP_CHECKSUM  #  ...then set error
         return False            #  and return 'False.'
 
@@ -347,7 +358,7 @@ def sendCommand( cmnd, param):
     else:
         if( cmnd == SYSTEM_RESET or
             cmnd == RESTORE_FACTORY_SETTINGS or
-            cmnd == SAVE_SETTINGS ):
+            cmnd == SAVE_SETTINGS):
             if( reply[ 3] == 1):    #  If PASS/FAIL byte non-zero
                 status = TFMP_FAIL  #  then set status to 'FAIL'
                 return False        #  and return 'False'.
@@ -383,6 +394,7 @@ def printStatus():
     elif( status == TFMP_WEAK):      print( "Signal weak", end= '')
     elif( status == TFMP_STRONG):    print( "Signal saturation", end= '')
     elif( status == TFMP_FLOOD):     print( "Ambient light saturation", end= '')
+    elif( status == TFMP_NOPARAM):   print( "Required parameter missing", end= '')
     else:                            print( "OTHER", end= '')
     print()
 #
